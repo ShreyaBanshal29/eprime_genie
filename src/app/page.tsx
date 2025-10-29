@@ -14,15 +14,14 @@ type HistoryItem = { id: string; title: string; messages: Message[]; conversatio
 export default function Home() {
   const [studentName, setStudentName] = useState("");
   const [studentId, setStudentId] = useState("");
+  // Authentication state
   const [errors, setErrors] = useState<{ name?: string; id?: string }>({});
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isInitialLoad, setIsInitialLoad] = useState(false);
+  const [isInitialLoad] = useState(false);
   const [sessionId, setSessionId] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isSliding] = useState(false);
-  const [timer, setTimer] = useState(900);
-  const [sessionActive, setSessionActive] = useState(true);
   const [, setSidebarOpen] = useState(false);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [showHistory, setShowHistory] = useState(false);
@@ -40,68 +39,39 @@ export default function Home() {
   // --- ⬆️ END NEW STATE & REFS ⬆️ ---
 
 
-  // ✅ Validation (Used only if auto-login fails and manual form is visible)
+  // Simple validation
   const validate = () => {
     const newErrors: { name?: string; id?: string } = {};
-    // Accept at least two words for name and numeric-only student id
-    const namePattern = /^\s*\S+(?:\s+\S+)+\s*$/; // at least two words
-    if (!namePattern.test(String(studentName).trim())) {
-      newErrors.name = "Enter first and last name.";
-    }
-    const idPattern = /^\d+$/; // one or more digits
-    if (!idPattern.test(String(studentId).trim())) {
-      newErrors.id = "ID must be numeric.";
-    }
+    const namePattern = /^\s*\S+(?:\s+\S+)+\s*$/;
+    if (!namePattern.test(String(studentName).trim())) newErrors.name = "Enter first and last name.";
+    const idPattern = /^\d+$/;
+    if (!idPattern.test(String(studentId).trim())) newErrors.id = "ID must be numeric.";
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
-  type AuthSuccess = {
-    success: true;
-    sessionId: string;
-    student: { studentId: string; name: string; lastLogin: string };
-  };
-  type AuthFailure = { success: false; message: string };
-
-  // ✅ REFACTORED LOGIN: Handles the final POST request to your AI backend (/api/auth)
+  // Login -> calls /api/auth and creates a session
   const handleCounsellorAiLogin = async (id: string, name: string) => {
     setIsLoading(true);
     setErrors({});
-
     try {
-      const response = await fetch("/api/auth", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: id.trim(),
-          name: name.trim(),
-        }),
+      const response = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: id.trim(), name: name.trim() })
       });
-
-      const data: AuthSuccess | AuthFailure = await response.json();
-
-      if (data.success) {
+      const data = await response.json();
+      if (data?.success) {
         setStudentId(id);
         setStudentName(name);
+        setSessionId(data.sessionId || '');
         setIsAuthenticated(true);
-        setSessionActive(true);
-        setTimer(900);
-        setSessionId(data.sessionId);
-
         await loadConversationHistory(id);
-
-        if (window.history.replaceState) {
-          const cleanUrl = window.location.origin + window.location.pathname;
-          window.history.replaceState(null, '', cleanUrl);
-        }
       } else {
-        setErrors({ name: data.message });
-        setIsAuthenticated(false);
+        setErrors({ name: data?.message || 'Login failed' });
       }
-    } catch (error) {
-      console.error("AI Login error:", error);
-      setErrors({ name: "Failed to connect to AI system." });
-      setIsAuthenticated(false);
+    } catch (e) {
+      setErrors({ name: 'Failed to connect to server' });
     } finally {
       setIsLoading(false);
     }
@@ -140,8 +110,8 @@ export default function Home() {
 
   // ✅ Handle Send Message (UPDATED)
   const handleSend = async () => {
-    // Disable send if no input AND no files, or if session inactive
-    if ((!input.trim() && uploadedFiles.length === 0) || !sessionActive) return;
+    // Disable send if no input AND no files
+    if ((!input.trim() && uploadedFiles.length === 0)) return;
 
     // Use input or indicate file attachment
     const messageText = input || `Attached ${uploadedFiles.length} file(s)`;
@@ -187,11 +157,9 @@ export default function Home() {
 
   // ✅ Chat Management: Function to start a new chat
   const handleNewChat = () => {
-    setMessages([]); // Clear messages
-    setInput(""); // Clear input field
-    setUploadedFiles([]); // Clear any selected files
-    setTimer(900); // Reset timer
-    setSessionActive(true);
+    setMessages([]);
+    setInput("");
+    setUploadedFiles([]);
   };
   const startNewSession = handleNewChat; // Alias the function
 
@@ -303,29 +271,7 @@ export default function Home() {
   // Manual login flow only; no auto login
 
 
-  // ✅ Timer Countdown (Logic remains the same)
-  useEffect(() => {
-    if (!isAuthenticated || !sessionActive) return;
-    const interval = setInterval(() => {
-      setTimer((t) => {
-        if (t > 0) return t - 1;
-        clearInterval(interval);
-        setSessionActive(false);
-        setMessages((prev) => [
-          ...prev,
-          { role: "ai", text: "⏳ Session expired. Please start a new chat." },
-        ]);
-        return 0;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [isAuthenticated, sessionActive]);
-
-  const formatTime = (seconds: number) => {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m}:${s < 10 ? "0" : ""}${s}`;
-  };
+  // Timer removed
 
   const loadHistory = (item: HistoryItem) => {
     setMessages(item.messages);
@@ -336,20 +282,7 @@ export default function Home() {
   // ---------- CONDITIONAL RENDERING ----------
   // ------------------------------------------------
 
-  // 1. Show Loading while the initial fetch is happening
-  if (isInitialLoad) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-indigo-50 via-white to-indigo-100">
-        <h1 className="text-2xl font-semibold text-indigo-700">
-          <FiClock className="inline mr-2 animate-spin" />
-          Logging you in...
-        </h1>
-      </div>
-    );
-  }
-
-
-  // 2. Show Manual Login Form only if auto-login failed (isAuthenticated is false)
+  // Login page
   if (!isAuthenticated) {
     return (
       <div className="relative flex items-center justify-center min-h-screen bg-gradient-to-br from-indigo-50 via-white to-indigo-100 overflow-hidden">
@@ -367,23 +300,17 @@ export default function Home() {
         />
         <div className="relative z-10 flex flex-col items-center text-center">
           <h1 className="text-4xl md:text-5xl font-extrabold text-indigo-700 drop-shadow-md">
-            Welcome to <span className="text-purple-600">Thalema AI</span>
+            Welcome to <span className="text-purple-600">Eprime Genie</span>
           </h1>
-          <p className="mt-3 text-gray-600 max-w-md">
-            Please enter your credentials to continue.
-            This ensures a secure and personalized chat session.
-          </p>
+          <p className="mt-3 text-gray-600 max-w-md">Please enter your credentials to continue.</p>
           <div className="mt-8 bg-white shadow-2xl rounded-2xl p-8 w-96">
-            <h2 className="text-xl font-semibold mb-6 text-indigo-700">
-              🔐 Enter Credentials
-            </h2>
+            <h2 className="text-xl font-semibold mb-6 text-indigo-700">Enter Credentials</h2>
             <input
               type="text"
-              placeholder="Student Name"
+              placeholder="Full Name"
               value={studentName}
               onChange={(e) => setStudentName(e.target.value)}
-              className={`w-full border rounded-lg p-3 mb-2 focus:ring-2 focus:ring-indigo-500 ${errors.name ? "border-red-500" : "border-gray-300"
-                }`}
+              className={`w-full border rounded-lg p-3 mb-2 focus:ring-2 focus:ring-indigo-500 ${errors.name ? 'border-red-500' : 'border-gray-300'}`}
             />
             {errors.name && <p className="text-red-500 text-sm mb-3">{errors.name}</p>}
             <input
@@ -391,15 +318,15 @@ export default function Home() {
               placeholder="ID"
               value={studentId}
               onChange={(e) => setStudentId(e.target.value)}
-              className={`w-full border rounded-lg p-3 mb-2 focus:ring-2 focus:ring-indigo-500 ${errors.id ? "border-red-500" : "border-gray-300"
-                }`}
+              className={`w-full border rounded-lg p-3 mb-2 focus:ring-2 focus:ring-indigo-500 ${errors.id ? 'border-red-500' : 'border-gray-300'}`}
             />
             {errors.id && <p className="text-red-500 text-sm mb-3">{errors.id}</p>}
             <button
               onClick={async () => { if (validate()) await handleCounsellorAiLogin(studentId, studentName); }}
               className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-3 rounded-lg font-semibold hover:opacity-90 transition"
+              disabled={isLoading}
             >
-              Continue
+              {isLoading ? 'Signing in...' : 'Continue'}
             </button>
           </div>
         </div>
@@ -407,7 +334,6 @@ export default function Home() {
     );
   }
 
-  // 3. Show Chat Page when isAuthenticated is true
   // ---------- CHAT PAGE ----------
   return (
     <div
@@ -503,24 +429,18 @@ export default function Home() {
       <div className="flex-1 flex flex-col relative">
         {/* ===== Header ===== */}
         <header className="sticky top-0 z-20 bg-white/40 backdrop-blur-md border-gray-200 text-indigo-900 py-1 shadow-lg">
-          <h1 className="text-center text-2xl font-bold tracking-wide bg-gradient-to-r from-indigo-700 to-purple-700 bg-clip-text text-transparent">
-            Thalema — Your Counsellor AI </h1>
-          <p className="text-center text-1xl font-bold tracking-wide bg-gradient-to-r from-indigo-700 to-purple-700 bg-clip-text text-transparent">Serving Will, Purpose and Desire</p>
+          <h1 className="text-center text-3xl font-bold tracking-wide bg-gradient-to-r from-blue-600 to-blue-800 bg-clip-text text-transparent">Eprime genie</h1>
+
+
+          <p className="text-center text-1xl font-bold tracking-wide bg-gradient-to-r from-blue-600 to-blue-800 bg-clip-text text-transparent">from data to decisions</p>
         </header>
 
-        {/* ===== Timer (fixed top-right) ===== */}
-        <motion.div
-          animate={{ scale: [1, 1.05, 1], opacity: [1, 0.9, 1] }}
-          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-          className="fixed top-18 right-6 text-indigo-900 text-lg font-semibold bg-white/30 border-gray-300 backdrop-blur-sm px-4 py-1 rounded-full shadow-md border border-white/40"
-        >
-          {sessionActive ? formatTime(timer) : "Expired"}
-        </motion.div>
+        {/* Timer removed */}
 
         {/* ===== Messages (only scrollable section) ===== */}
         <div className="flex-1 overflow-y-auto px-1 py-1 space-y-1">
           {messages.length === 0 ? (
-            <div className="flex flex-col items-center justify-center mt-50 space-y-1">
+            <div className="fixed inset-0 flex items-center justify-center z-10 pointer-events-none">
               <Image
                 src="/counsellor.png"
                 alt="Counsellor"
@@ -536,7 +456,7 @@ export default function Home() {
                 className={`my-2 flex ${m.role === "user" ? "justify-start" : "justify-end"} px-64`}
               >
                 <div
-                  className={`px-2 py-2 text-lg max-w-[70%] rounded-2xl whitespace-pre-wrap ${m.role === "user" ? "bg-gray-100 text-black" : "bg-gradient-to-r from-indigo-500 to-purple-500 text-white"
+                  className={`px-2 py-2 text-lg max-w-[70%] rounded-2xl whitespace-pre-wrap ${m.role === "user" ? "bg-gray-100 text-black" : "bg-gradient-to-r from-blue-500 to-purple-500 text-white"
                     }`}
                   dangerouslySetInnerHTML={{ __html: m.text }}
                 />
@@ -555,122 +475,113 @@ export default function Home() {
           <motion.div
             animate={{ x: isSliding ? 50 : 0 }}
             transition={{ type: "spring", stiffness: 50 }}
-            className="fixed bottom-24 right-5 z-10"
+            className="fixed bottom-10 right-5 z-10"
           >
             <Image
               src="/counsellor.png"
               alt="Counsellor"
               width={250}
               height={250}
-              className="rounded-full border-2 border-white/40 shadow-3xl shadow-blue-500/25"
+              className="fixed"
             />
           </motion.div>
         )}
 
         {/* ===== Fixed Chat Input Bar (Composer) - REPLACEMENT JSX ===== */}
         <div className="sticky bottom-0 flex justify-center py-4 z-20">
-          {!sessionActive ? (
-            <button
-              onClick={handleNewChat}
-              className="px-8 py-4 rounded-lg bg-blue-600 text-white text-2xl hover:bg-blue-700"
-            >
-              🔄 Start New Session
-            </button>
-          ) : (
-            // New composer with drag-drop, file preview, mic
-            <div
-              className={`flex flex-col w-[550px] max-w-[95%] border rounded-2xl bg-white shadow-sm transition-all duration-200 ${isDragOver ? 'border-indigo-500 border-2 ring-4 ring-indigo-200' : 'border-gray-300'
-                }`}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-            >
-              {/* File Upload Preview Area */}
-              {uploadedFiles.length > 0 && (
-                <div className="flex flex-wrap gap-2 p-2 w-full border-b border-gray-200 max-h-24 overflow-y-auto">
-                  {uploadedFiles.map((file) => (
-                    <div key={file.name} className="flex items-center bg-gray-100 text-gray-700 text-xs px-2 py-1 rounded-full">
-                      <FiFile className="mr-1 flex-shrink-0" />
-                      <span className="truncate max-w-[150px]">{file.name}</span>
-                      <button
-                        className="ml-1.5 text-xs font-bold leading-none hover:text-red-500"
-                        onClick={() => removeFile(file.name)}
-                        title="Remove file"
-                      >
-                        &times;
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
+          {/* Composer */}
+          <div
+            className={`flex flex-col w-[550px] max-w-[95%] border rounded-2xl bg-white shadow-sm transition-all duration-200 ${isDragOver ? 'border-indigo-500 border-2 ring-4 ring-indigo-200' : 'border-gray-300'
+              }`}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
+            {/* File Upload Preview Area */}
+            {uploadedFiles.length > 0 && (
+              <div className="flex flex-wrap gap-2 p-2 w-full border-b border-gray-200 max-h-24 overflow-y-auto">
+                {uploadedFiles.map((file) => (
+                  <div key={file.name} className="flex items-center bg-gray-100 text-gray-700 text-xs px-2 py-1 rounded-full">
+                    <FiFile className="mr-1 flex-shrink-0" />
+                    <span className="truncate max-w-[150px]">{file.name}</span>
+                    <button
+                      className="ml-1.5 text-xs font-bold leading-none hover:text-red-500"
+                      onClick={() => removeFile(file.name)}
+                      title="Remove file"
+                    >
+                      &times;
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
 
-              {/* Main Input Row */}
-              <div className="flex items-center w-full px-3 py-2">
-                {/* Attach File Button */}
-                <button
+            {/* Main Input Row */}
+            <div className="flex items-center w-full px-3 py-2">
+              {/* Attach File Button */}
+              {/* <button
                   className="text-gray-500 hover:text-indigo-600 mr-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   onClick={openFileDialog}
                   disabled={isLoading || isRecording}
                   title="Attach File"
                 >
                   <FiPaperclip size={20} />
-                </button>
+                </button> */}
 
-                {/* Mic Button - Uses FiMic and FiSquare */}
-                <button
+              {/* Mic Button - Uses FiMic and FiSquare */}
+              {/* <button
                   className={`mr-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors ${isRecording
-                      ? 'text-red-500 animate-pulse'
-                      : 'text-gray-500 hover:text-indigo-600'
+                    ? 'text-red-500 animate-pulse'
+                    : 'text-gray-500 hover:text-indigo-600'
                     }`}
                   title={isRecording ? "Stop Recording" : "Start Voice Input"}
                   onClick={isRecording ? stopRecording : startRecording}
                   disabled={isLoading}
                 >
                   {isRecording ? <FiSquare size={20} /> : <FiMic size={20} />}
-                </button>
+                </button> */}
 
-                {/* Input Field */}
-                <input
-                  type="text"
-                  className="flex-1 border-none outline-none text-base px-2 bg-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
-                  placeholder={
-                    isLoading ? "Processing..."
-                      : isRecording ? "Listening..."
-                        : "Ask Counsellor AI..."
-                  }
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSend();
-                    }
-                  }}
-                  disabled={isLoading || isRecording}
-                />
-
-                {/* Send Button */}
-                <button
-                  className="bg-blue-600 text-white rounded-full w-8 h-8 flex items-center justify-center hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                  onClick={handleSend}
-                  disabled={isLoading || (input.trim().length === 0 && uploadedFiles.length === 0)}
-                  title="Send Message"
-                >
-                  <FiSend size={16} />
-                </button>
-              </div>
-
-              {/* Hidden File Input */}
+              {/* Input Field */}
               <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                onChange={handleFileInputChange}
-                style={{ display: 'none' }}
-                accept=".pdf,.txt,.jpg,.jpeg,.png"
+                type="text"
+                className="flex-1 border-none outline-none text-base px-2 bg-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+                placeholder={
+                  isLoading ? "Processing..."
+                    : isRecording ? "Listening..."
+                      : "Ask anything..."
+                }
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
+                disabled={isLoading || isRecording}
               />
+
+              {/* Send Button */}
+              <button
+                className="bg-blue-600 text-white rounded-full w-8 h-8 flex items-center justify-center hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={handleSend}
+                disabled={isLoading || (input.trim().length === 0 && uploadedFiles.length === 0)}
+                title="Send Message"
+              >
+                <FiSend size={16} />
+              </button>
             </div>
-          )}
+
+            {/* Hidden File Input */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              onChange={handleFileInputChange}
+              style={{ display: 'none' }}
+              accept=".pdf,.txt,.jpg,.jpeg,.png"
+            />
+          </div>
         </div>
         {/* --- ⬆️ END FIXED CHAT INPUT BAR ⬆️ --- */}
 
@@ -678,3 +589,5 @@ export default function Home() {
     </div> // End Root Div
   );
 }
+
+

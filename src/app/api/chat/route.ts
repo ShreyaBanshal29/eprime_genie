@@ -262,7 +262,7 @@ export async function POST(req: Request) {
 
          User Question: ${message}`
       ),
-      360000, // Increased timeout to 60 seconds
+      1000000, // Increased timeout to 60 seconds
       'Gemini response'
     );
     replyText = extractReplyText(response);

@@ -123,16 +123,7 @@ export default function Home() {
     setUploadedFiles([]); // <-- CLEARS FILES
 
     // ... (identityCheck logic remains the same) ...
-    if (["hey chatgpt", "are you", "are you google", "are you gemini", "are you openai", "which llm", "what model", "are you chatgpt", "are you grok", "who made you", "who created you", "your developer", "your creator", "your name", "identify yourself", "who are you", "what are you", "your purpose", "are you a counsellor"].some((phrase) => userMessage.toLowerCase().includes(phrase))) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "ai",
-          text: "I am Counsellor AI, created to support and guide you. I am not Google, Gemini, or OpenAI — I am your personal counsellor 🤝.",
-        },
-      ]);
-      return;
-    }
+    
 
     try {
       const res = await fetch("/api/chat", {

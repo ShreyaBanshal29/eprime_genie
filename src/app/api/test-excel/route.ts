@@ -10,7 +10,7 @@ export async function GET() {
         console.log('Directory exists:', existsSync(dataDir));
 
         const files = ['3103.xlsx', 'Expense Code Mapping Logic.xlsx'];
-        const results = {};
+        const results: Record<string, any> = {};
 
         for (const fileName of files) {
             const filePath = join(dataDir, fileName);
@@ -29,7 +29,7 @@ export async function GET() {
                 } catch (error) {
                     results[fileName] = {
                         success: false,
-                        error: error.message
+                        error: (error as Error).message
                     };
                 }
             } else {
@@ -47,8 +47,8 @@ export async function GET() {
         });
     } catch (error) {
         return NextResponse.json({
-            error: error.message,
-            stack: error.stack
+            error: (error as Error).message,
+            stack: (error as Error).stack
         }, { status: 500 });
     }
 }

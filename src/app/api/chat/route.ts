@@ -7,6 +7,9 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { DatabaseService } from '@/lib/models/database';
 
+// Configure route segment for Next.js
+export const dynamic = 'force-dynamic';
+export const maxDuration = 60; // 60 seconds max duration
 
 /**
  * Utility: Format Gemini response into clean paragraphs without markdown.
@@ -141,8 +144,8 @@ function readExcelFiles(): string {
 
         // Convert all sheets to JSON and limit size to avoid huge payloads
         const sheetData = {} as Record<string, unknown>;
-        const MAX_ROWS = 50; // Reduced from 200
-        const MAX_COLS = 10; // Reduced from 30
+        const MAX_ROWS = 30; // Further reduced for faster processing
+        const MAX_COLS = 8; // Further reduced for faster processing
         workbook.SheetNames.forEach(sheetName => {
           const worksheet = workbook.Sheets[sheetName];
           const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as unknown[] as any[][];
@@ -160,8 +163,8 @@ function readExcelFiles(): string {
     });
 
     // Stringify and hard-limit payload to avoid huge prompts
-    const json = JSON.stringify(allData, null, 2);
-    const MAX_CONTEXT_CHARS = 50_000; // ~50 KB of text (reduced from 200KB)
+    const json = JSON.stringify(allData, null, 1); // Reduced indentation
+    const MAX_CONTEXT_CHARS = 30_000; // ~30 KB of text - reduced further for faster responses
     return json.length > MAX_CONTEXT_CHARS ? json.slice(0, MAX_CONTEXT_CHARS) + "\n... [truncated]" : json;
   } catch (error) {
     const msg = (error as Error)?.message || String(error);
@@ -219,8 +222,9 @@ export async function POST(req: Request) {
     console.log('Reading Excel files...');
 
     const model = new ChatGoogleGenerativeAI({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.0-flash-exp",
       apiKey: process.env.GOOGLE_API_KEY!,
+      temperature: 0.7,
     });
 
     let replyText = "";
@@ -236,35 +240,21 @@ export async function POST(req: Request) {
     }
 
     // Single flow: always answer using Excel data context
+    console.log('Calling Gemini API...');
     const response = await withTimeout(
       model.invoke(
-        `
-  You are a Senior Business Analyst.
-  Your expertise lies in analyzing business data, identifying trends, patterns, and providing actionable insights to drive business decisions.
-  
-  Your capabilities include:
-  1. Data analysis and interpretation from Excel files and datasets
-  2. Financial analysis and KPI evaluation
-  3. Market trend analysis and forecasting
-  4. Business process optimization recommendations
-  5. Risk assessment and mitigation strategies
-  6. Performance metrics and dashboard insights
-  
-  Rules:
-  1. Always respond as a professional business analyst with deep analytical expertise.
-  2. Never reveal that you are an AI, Gemini, or that data is being sent to you.
-  3. Use the provided business data silently — analyze it thoroughly and provide insights.
-  4. Be precise, data-driven, and provide actionable recommendations.
-  5. Only provide the final summarized answer — do not include any explanations, reasoning steps, or process details.
-  6. Always consider business implications and ROI in your analysis.
+        `You are a Senior Business Analyst with expertise in analyzing business data and providing actionable insights.
 
-         Available Data Context: ${excelData}
+Available business data: ${excelData}
 
-         User Question: ${message}`
+User Question: ${message}
+
+Provide a clear, professional analysis based on the available data.`
       ),
-      1000000, // Increased timeout to 60 seconds
+      60000, // 60 seconds timeout
       'Gemini response'
     );
+    console.log('Gemini API response received');
     replyText = extractReplyText(response);
 
     const formattedReply = formatGeminiResponse(replyText);
@@ -289,8 +279,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ reply: formattedReply });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error("Gemini API error:", message);
-    return NextResponse.json({ reply: `⚠️ Error: ${message}` }, { status: 500 });
+    console.error("Chat API error:", message);
+    console.error("Error stack:", err instanceof Error ? err.stack : 'No stack trace');
+
+    // Return user-friendly error message
+    if (message.includes('timeout')) {
+      return NextResponse.json({ reply: "⚠️ Request timed out. The server is taking too long to respond. Please try again or simplify your request." }, { status: 504 });
+    }
+
+    return NextResponse.json({ reply: `⚠️ Failed to connect to AI. Please try again.` }, { status: 500 });
   }
 }
 
